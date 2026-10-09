@@ -9,9 +9,9 @@ from tqdm.asyncio import tqdm
 
 from order_dependency.analysis.report import write_report
 from order_dependency.mcq import MCQ, load_questions
-from order_dependency.mmlu import load_mmlu
 from order_dependency.runner.experiment_run import ExperimentRun
 from order_dependency.runner.llm_config import LLMConfig
+from order_dependency.runner.mmlu import load_mmlu
 from order_dependency.runner.permutations import Permutation, place_correct
 from order_dependency.trial import Trial
 

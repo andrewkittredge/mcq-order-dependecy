@@ -1,6 +1,6 @@
 # Order Dependency in LLM Answers to Multiple-Choice Questions
 
-Large Language Models (LLMs) exhibit order dependency bias when answering multiple choice questions (MCQs), see Zheng et al. https://openreview.net/pdf?id=shr9PXz7T0. Order dependency is a bias in LLM response based on the order or inputs.
+Large Language Models (LLMs) exhibit order dependency bias when answering multiple choice questions (MCQs), see Zheng et al. https://openreview.net/pdf?id=shr9PXz7T0. Order dependency is a bias in LLM response based on the order of inputs.
 
 In the context of answering multiple choice questions, order dependency manifests as a bias towards selecting an answer based on index of answer in the list of answers, for instance tending to select the first answer.
 
