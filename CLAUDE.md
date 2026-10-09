@@ -8,10 +8,10 @@ A take-home tech test (see `Take Home Tech Test.pdf`) on the *order dependency p
 answers to multiple-choice questions. The deliverables are:
 
 - **Part 1** – a ≤500-word written explanation (PDF/Word, not yet present).
-- **Part 2** – the `order-dependency/` Python application, its README and results.
+- **Part 2** – the `order_dependency` Python application (`src/order_dependency/`, CLI in `bin/order-dependency.py`), its README and results.
 - **Part 3** – `use-of-generative-ai.md`, describing how generative AI was used (currently empty).
 
-All code lives in `order-dependency/`; run every command below from that directory.
+The project uses a src layout: the package is `src/order_dependency/`, the CLI script is `bin/order-dependency` (`src/order_dependency/__main__.py` runs it, and is the `order-dependency` console entry point), tests are in `tests/`, question files in `data/`. Run every command below from the repository root.
 
 ## Commands
 
@@ -21,32 +21,31 @@ uv run python -m unittest                # whole test suite (no API calls)
 uv run python -m unittest tests.test_metrics                         # one module
 uv run python -m unittest tests.test_metrics.OdsTests.test_always_pick_A_is_maximally_order_dependent  # one test
 uv run ruff check .                      # lint; `--fix` for imports/spacing
-uv run order-dependency preview --strategy cyclic --limit 1          # render prompts, no API calls
-uv run order-dependency experiment --thinking disabled --effort low -o opus5-no-thinking   # -> <repo>/results/opus5-no-thinking
-uv run order-dependency experiment -q mmlu --per-subject 20 -o mmlu-subset  # MMLU, fetched from Hugging Face and cached
-uv run order-dependency experiment -q data/finance_extraction.json --thinking disabled -o finance-extraction   # extraction task
-uv run order-dependency experiment -q data/apple_fy2025_mcq.json --thinking disabled -o apple-fy2025   # whole real 8-K as context, lettered options
+uv run bin/order-dependency.py --thinking disabled --effort low -o opus5-no-thinking   # -> <repo>/results/opus5-no-thinking
+uv run bin/order-dependency.py -q mmlu --per-subject 20 -o mmlu-subset  # MMLU, fetched from Hugging Face and cached
+uv run bin/order-dependency.py -q data/finance_extraction.json --thinking disabled -o finance-extraction   # extraction task
+uv run bin/order-dependency.py -q data/apple_fy2025_mcq.json --thinking disabled -o apple-fy2025   # whole real 8-K as context, lettered options
 ```
 
 `215_Large_Language_Models_Are_.pdf` at the repo root is Zheng et al. (ICLR 2024), the paper the
-assignment references. `--strategy place-correct` reproduces its Table 1 "answer-moving attack";
+assignment references. `permutations.place_correct` reproduces its Table 1 "answer-moving attack";
 the report's recall-by-position row is that table's A/B/C/D columns. PriDe (its debiasing algorithm)
 is not implemented.
 
-`experiment` needs `ANTHROPIC_API_KEY` with credit; it sends one probe request first and exits 1 with the
-API error if that fails. Default `--strategy place-correct` asks each question once per option position
-(4 prompts for a 4-option question); `--strategy full` asks all 24 orderings.
+The `claude` backend needs `ANTHROPIC_API_KEY` with credit; it sends one probe request first and exits 1 with the
+API error if that fails. Every question is asked once per option position with the correct option moved
+there and the distractors in fixed order (4 prompts for a 4-option question), times `--samples`.
 
 ## Architecture
 
-Pipeline: `MCQ` → permutations → `harnesses/` → `Trial` records → `analysis/` (`metrics.aggregate` → `report`).
+Pipeline (all paths under `src/order_dependency/`): `MCQ` → `permutations.place_correct` → `harnesses/` → `Trial` records → `analysis/` (`metrics.aggregate` per-question DataFrame → `metrics.summarize` → `report`).
 `-q mmlu` bypasses the JSON loader: `mmlu.load_mmlu` fetches the `cais/mmlu` parquet with `huggingface_hub`
 (cached) and converts it to `MCQ`s with ids `mmlu-<subject>-<row>`; `--per-subject` draws a seeded subset.
 
 The central idea that ties the modules together is the **canonical-vs-presented distinction**.
 `MCQ.options` are in canonical (input-file) order. A `Permutation` is a tuple where `perm[j]` is the
 canonical option shown at presented position `j` (letter `LABELS[j]`). `prompt.parse_reply` returns
-a *presented* position; the answerers map it through `permutations.to_canonical` so every `Trial` stores
+a *presented* position; the answerers index the permutation with it (`perm[position]`) so every `Trial` stores
 both `position` (letter) and `canonical` (which option). All metrics work on `canonical`; only the
 position-bias tables use `position`.
 
@@ -69,17 +68,19 @@ does not expose them.
 `runner/run_experiment.py` returns an `ExperimentRun` (pydantic model: config, permutation settings,
 questions, trials). `analysis.report.write_report` computes metrics from it and writes `results.json`
 (`model_dump()` + summary) / `trials.csv` / `report.md`. Because the record is self-contained,
-`ExperimentRun.model_validate_json` can rebuild a saved run from `results.json`. `MCQ`, `Trial`, `LLMConfig` stay stdlib dataclasses; pydantic validates them as fields.
+`ExperimentRun.model_validate_json` can rebuild a saved run from `results.json`. `MCQ`, `Trial`, `LLMConfig` and `QuestionMetrics` are pydantic dataclasses (`pydantic.dataclasses.dataclass`), so they are validated on construction and as `ExperimentRun` fields.
 
 The `harnesses/` package holds two backends with the same `answer(mcq, perm_index, perm, sample) -> Trial`
-method: `ClaudeAnswerer` (API, sampled letter) and `HFAnswerer` (local transformers model, argmax of
-the option-letter logits after `Answer:`, fills `Trial.probabilities`). The `LLMConfig.answerer`
+method: `ClaudeAnswerer` (API, sampled letter) and `LocalAnswerer` (local transformers model, argmax of
+the option-letter logits after `Answer:`). The `LLMConfig.answerer`
 property builds the one selected by `backend`. Both modules import `LLMConfig` only under
-`TYPE_CHECKING` because `llm_config` imports them; `hf_answerer` imports torch/transformers inside
-the class because they live in the optional `hf` dependency group (`uv sync --group hf`).
-The headline `ods` is always one-hot (chosen option per trial) so it compares across backends; when
-`probabilities` are present `analysis.metrics` also reports `ods_probability` / `mean_ods_probability`
-from the full letter distribution.
+`TYPE_CHECKING` because `llm_config` imports them. `local_answerer` imports torch/transformers at module
+level, and they live in the optional `hf` dependency group (`uv sync --group hf`), so `llm_config` imports
+`LocalAnswerer` under `TYPE_CHECKING` and again inside the `hf` branch of `answerer`, never at module level.
+`ods` is one-hot (chosen option per trial) so it compares across backends. `Trial` keeps the fields
+the metrics need (`question_id`, `perm_index`, `perm`, `position`, `canonical`, `correct`) plus the raw `reply`
+(the chosen letter for `hf`), which the report's per-question tables show; unanswered prompts are trials
+with `None` in `position`/`canonical`/`correct`.
 
 `runner/llm_config.py`'s `LLMConfig.request_kwargs()` is the single place the Anthropic request shape is built (`thinking`,
 `output_config.effort`, no temperature — current Claude models reject sampling params). On refusal

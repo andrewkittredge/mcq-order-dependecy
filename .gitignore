@@ -1,3 +1,15 @@
-# Experiment outputs (regenerate with `order-dependency run`)
+# Experiment outputs (regenerate with `bin/order-dependency.py experiment`)
 results/
 215_Large_Language_Models_Are_.pdf
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+bin/experiment.ipynb

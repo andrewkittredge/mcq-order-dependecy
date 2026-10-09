@@ -1,0 +1,28 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "experiment: Qwen2.5-0.5B on MMLU subset (hf)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/order-dependency.py",
+            "args": [
+                "experiment",
+                "--backend",
+                "hf",
+                "--model",
+                "Qwen/Qwen2.5-0.5B",
+                "-q",
+                "mmlu",
+                "--per-subject",
+                "1",
+                "-o",
+                "mmlu-qwen05b-subset"
+            ],
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}

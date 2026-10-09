@@ -1,0 +1,81 @@
+{% macro pct(x) %}{{ "%.1f%%" | format(100 * x) }}{% endmacro %}
+{% set k = run.questions | map(attribute="k") | max %}
+{% set letters = labels[:k] %}
+{% if run.config.backend == "hf" %}
+{% set precision = "4-bit" if run.config.quantized else "fp16" %}
+{% set settings = "local Hugging Face model, " ~ precision ~ ", scored from option-letter logits" %}
+{% else %}
+{% set settings = "thinking: `" ~ run.config.thinking ~ "` · effort: `" ~ run.config.effort ~ "` · max_tokens: " ~ run.config.max_tokens %}
+{% endif %}
+# Order dependency report
+
+- Run at: {{ run.run_at }}
+- Model: `{{ run.config.model }}` · {{ settings }}
+- Orderings: correct option at each position · samples per ordering: {{ run.samples }}
+- Prompts: {{ s.n_trials }} ({{ s.n_unanswered }} unanswered/unparseable)
+
+## Headline metrics
+
+| Metric | Value |
+|:---|:---|
+| Mean ODS (0 = order-invariant, 1 = fully order-determined) | **{{ "%.3f" | format(s.mean_ods) }}** |
+| Median / max ODS | {{ "%.3f" | format(s.median_ods) }} / {{ "%.3f" | format(s.max_ods) }} |
+| Questions with at least one order-induced answer change | {{ s.questions_with_disagreement }} / {{ s.n_questions }} |
+| Mean consistency (agreement with modal answer) | {{ pct(s.mean_consistency) }} |
+| Accuracy per prompt (averaged over orderings) | {{ pct(s.trial_accuracy) }} |
+| Recall std across correct-answer positions (RStd) | {{ "%.3f" | format(s.recall_std) }} |
+
+## Answer-moving attack (paper Table 1)
+
+Accuracy on the options as authored (Orig), and accuracy when every question's correct option
+is moved to a fixed position; parentheses give the change in points versus Orig (each moved-to
+column is the recall of that position, as in Table 1 of Zheng et al. 2024).
+
+| Orig | {% for letter in letters %}Move gold to {{ letter }}{{ " | " if not loop.last }}{% endfor %} |
+|:---|{% for letter in letters %}:---{{ "|" if not loop.last }}{% endfor %}|
+| {{ pct(s.original_accuracy) }} | {% for letter in letters %}{{ pct(s.recall_by_position.get(loop.index0, 0.0)) }} ({{ "%+.1f" | format(100 * (s.recall_by_position.get(loop.index0, 0.0) - s.original_accuracy)) }}){{ " | " if not loop.last }}{% endfor %} |
+
+## Position bias
+
+Share of answers landing on each displayed position, and accuracy when the correct option was
+displayed at that position (for extraction items, position A is the first line of the excerpt).
+A balanced permutation set should give a uniform share (~{{ pct(1 / k) }}) and flat recall if the
+model ignores ordering.
+
+| Position | {{ letters | join(" | ") }} |
+|:---|{% for letter in letters %}:---{{ "|" if not loop.last }}{% endfor %}|
+| Chosen share | {% for letter in letters %}{{ pct(s.position_share.get(loop.index0, 0.0)) }}{{ " | " if not loop.last }}{% endfor %} |
+| Recall when correct is here | {% for letter in letters %}{{ pct(s.recall_by_position.get(loop.index0, 0.0)) }}{{ " | " if not loop.last }}{% endfor %} |
+
+
+## Per-question results
+
+Each question with its options as authored (✅ marks the answer) and its own ODS and consistency,
+followed by one row per prompt: the ordering the options were shown in, the model's reply, and the
+option that reply selected.
+
+{% for m in run.questions %}
+{% set tags = [m.topic, m.difficulty] | select | join(", ") %}
+### {{ m.id }}{{ " (" ~ tags ~ ")" if tags }}
+
+{{ m.question }}
+
+{% set q = s.per_question | selectattr("question_id", "equalto", m.id) | first %}
+ODS {{ "%.3f" | format(q.ods) }} · consistency {{ pct(q.consistency) }} · answered {{ q.n_answered }}
+
+{% for option in m.options %}
+- {{ option }}{{ "  ✅" if loop.index0 == m.answer else "" }}
+{% endfor %}
+{% if m.is_extraction %}
+- values: {{ m.values | join("; ") }}
+{% endif %}
+
+| Ordering | Reply | Chose | Correct |
+|:---|:---|:---|:---|
+{% for t in run.trials if t.question_id == m.id %}
+{% set chosen = "—" if t.position is none else labels[t.position] ~ ". " ~ m.display[t.canonical] %}
+{% set verdict = "—" if t.correct is none else ("✅" if t.correct else "❌") %}
+| {% for c in t.perm %}{{ labels[loop.index0] }}. {{ m.display[c] }}{{ " · " if not loop.last }}{% endfor %} | {{ t.reply | trim | replace("|", "\\|") | replace("\n", " ") }} | {{ chosen }} | {{ verdict }} |
+{% endfor %}
+
+{% endfor %}
