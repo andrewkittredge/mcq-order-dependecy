@@ -15,7 +15,7 @@ Run every command from the repository root. A small example with local inference
 uv run --group hf bin/order-dependency.py --backend hf --model Qwen/Qwen2.5-0.5B -q mmlu --per-subject 20 -o mmlu-qwen05b-subset
 ```
 
-The output is written to `results/<run name>/`. One report, `results/apple-fy2025-qwen05b/report.md`, is checked into this repository as an example.
+The output is written to `results/<run name>/`. One report, `results\mmlu-sonnet45\report.md`, is checked into this repository as an example.
 
 The commands below generate the rest of the data reported. The Claude runs need `ANTHROPIC_API_KEY`.
 
